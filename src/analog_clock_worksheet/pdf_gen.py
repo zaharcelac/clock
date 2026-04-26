@@ -418,14 +418,52 @@ def _draw_clock_face(
     c.circle(cx, cy, dot_r, stroke=0, fill=1)
 
 
+def _answer_slot_with_underscores(inner: str, width: int = 6) -> str:
+    """
+    Pad ``inner`` with underscores to ``width`` characters (same length as ``______`` blanks)
+    so filled example answers align visually with empty slots on the page.
+    """
+    v = str(inner)
+    if len(v) >= width:
+        return v[:width]
+    pad = width - len(v)
+    left = pad // 2
+    right = pad - left
+    return "_" * left + v + "_" * right
+
+
+def _analog_hour_to_24h(hour12: int, *, afternoon: bool) -> int:
+    """
+    Map a 12-hour dial hour (1–12) to a 24-hour clock hour (0–23).
+
+    ``afternoon=False`` (sun / “jour”): AM-style — 12 → 0, 1–11 unchanged.
+    ``afternoon=True`` (moon / “nuit”): PM-style — 12 → 12, 1–11 → 13–23.
+    """
+    if not 1 <= hour12 <= 12:
+        raise ValueError("hour12 must be 1–12")
+    if afternoon:
+        if hour12 == 12:
+            return 12
+        return hour12 + 12
+    if hour12 == 12:
+        return 0
+    return hour12
+
+
 def _draw_answer_blanks(
     c: canvas.Canvas,
     x_left: float,
     y_center: float,
     font_name: str = "Helvetica",
     font_size: float = 10.0,
+    *,
+    example: ClockTime | None = None,
 ) -> None:
-    """Five lines to the right of a clock: heures/minutes, then h-style and sun/moon blanks."""
+    """Five lines to the right of a clock: heures/minutes, then h-style and sun/moon blanks.
+
+    If ``example`` is set, answers use underscore padding like ``______``. Sun/moon rows use
+    **24-hour** time: sun = AM-style reading of the dial, moon = PM-style (same face, e.g. 03:15 vs 15:15).
+    """
     c.setFillColorRGB(0, 0, 0)
     blank = "______"
     sep = "  "
@@ -433,6 +471,19 @@ def _draw_answer_blanks(
         font_size + _ANSWER_BLANK_WORD_BUMP_PT,
         font_size * _ANSWER_BLANK_WORD_SCALE,
     )
+    if example is not None:
+        heures_fill = _answer_slot_with_underscores(str(example.hour))
+        minutes_fill = _answer_slot_with_underscores(str(example.minute).zfill(2))
+        sun_h = _analog_hour_to_24h(example.hour, afternoon=False)
+        moon_h = _analog_hour_to_24h(example.hour, afternoon=True)
+        sun_h_fill = _answer_slot_with_underscores(f"{sun_h:02d}")
+        moon_h_fill = _answer_slot_with_underscores(f"{moon_h:02d}")
+        sun_m_fill = _answer_slot_with_underscores(f"{example.minute:02d}")
+        moon_m_fill = sun_m_fill
+    else:
+        heures_fill = blank
+        minutes_fill = blank
+        sun_h_fill = sun_m_fill = moon_h_fill = moon_m_fill = blank
 
     base_lead = font_size * 1.25
     step = base_lead * _ANSWER_BLANK_LINE_STEP_MULT
@@ -442,34 +493,34 @@ def _draw_answer_blanks(
     y_sun = y_center - step
     y_moon = y_center - 2.0 * step
 
-    def _one_line(y: float, label: str, label_font: str) -> None:
+    def _one_line(y: float, label: str, label_font: str, prefix: str) -> None:
         fn = _safe_font_name(font_name)
         fs = _font_size_pt(font_size)
         c.setFont(fn, fs)
-        c.drawString(x_left, y, blank)
-        w_b = _string_width(blank, font_name, font_size)
+        c.drawString(x_left, y, prefix)
+        w_b = _string_width(prefix, font_name, font_size)
         w_s = _string_width(sep, font_name, font_size)
         c.setFont(_safe_font_name(label_font), _font_size_pt(label_size))
         c.drawString(x_left + w_b + w_s, y, label)
 
-    def _h_form_line(y: float) -> None:
-        """``______`` + ``h`` + ``______`` with same base/bold/sizing as heures/minutes."""
+    def _h_form_line(y: float, left_s: str, right_s: str) -> None:
+        """Two base segments around bold ``h``, same typography as heures/minutes."""
         fn = _safe_font_name(font_name)
         fs = _font_size_pt(font_size)
-        w_b = _string_width(blank, font_name, font_size)
+        w_b = _string_width(left_s, font_name, font_size)
         w_s = _string_width(sep, font_name, font_size)
         mid_font = _ANSWER_BLANK_HOURS_WORD_FONT_NAME
         mid_fs = _font_size_pt(label_size)
         w_h = _string_width("h", mid_font, label_size)
 
         c.setFont(fn, fs)
-        c.drawString(x_left, y, blank)
+        c.drawString(x_left, y, left_s)
         x_h = x_left + w_b + w_s
         c.setFont(_safe_font_name(mid_font), mid_fs)
         c.drawString(x_h, y, "h")
         x_b2 = x_h + w_h + w_s
         c.setFont(fn, fs)
-        c.drawString(x_b2, y, blank)
+        c.drawString(x_b2, y, right_s)
 
     def _plain_line(y: float, text: str, *, needs_unicode: bool = False) -> None:
         fs = _font_size_pt(font_size)
@@ -505,17 +556,27 @@ def _draw_answer_blanks(
             c.setFont(latin, fs)
         c.drawString(x_left, y, text)
 
-    _one_line(y_heures, _ANSWER_BLANK_HOURS_TEXT, _ANSWER_BLANK_HOURS_WORD_FONT_NAME)
-    _one_line(y_minutes, _ANSWER_BLANK_MINUTES_TEXT, _ANSWER_BLANK_MINUTES_WORD_FONT_NAME)
-    _h_form_line(y_h_form)
+    _one_line(
+        y_heures,
+        _ANSWER_BLANK_HOURS_TEXT,
+        _ANSWER_BLANK_HOURS_WORD_FONT_NAME,
+        heures_fill,
+    )
+    _one_line(
+        y_minutes,
+        _ANSWER_BLANK_MINUTES_TEXT,
+        _ANSWER_BLANK_MINUTES_WORD_FONT_NAME,
+        minutes_fill,
+    )
+    _h_form_line(y_h_form, heures_fill, minutes_fill)
     _plain_line(
         y_sun,
-        f"{_ANSWER_BLANK_SUN_SYMBOL} {blank} : {blank}",
+        f"{_ANSWER_BLANK_SUN_SYMBOL} {sun_h_fill} : {sun_m_fill}",
         needs_unicode=True,
     )
     _plain_line(
         y_moon,
-        f"{_ANSWER_BLANK_MOON_SYMBOL} {blank} : {blank}",
+        f"{_ANSWER_BLANK_MOON_SYMBOL} {moon_h_fill} : {moon_m_fill}",
         needs_unicode=True,
     )
 
@@ -648,7 +709,11 @@ def build_clock_worksheet_pdf(
                 + _ANSWER_BLANK_GAP_FROM_CLOCK_PT
             )
             _draw_answer_blanks(
-                c, text_x, cell_cy, font_size=max(8.0, min(11.0, cell_h * 0.1))
+                c,
+                text_x,
+                cell_cy,
+                font_size=max(8.0, min(11.0, cell_h * 0.1)),
+                example=t if i == 0 else None,
             )
 
         c.setFont(
