@@ -37,7 +37,6 @@
       <option value="quarter">Quarter — :00, :15, :30, :45</option>
       <option value="fives" selected>Fives — any 5-minute step</option>
     </select>
-    <p class="hint">Hour hand: on the hour when minutes are 0; otherwise between the two hour numbers (simplified).</p>
 
     <label for="show_minutes_numbers">Outer minute numbers (5, 10, 15, …)</label>
     <select id="show_minutes_numbers" name="show_minutes_numbers">
@@ -56,13 +55,26 @@
       <option value="1" selected>Show</option>
       <option value="0">Hide</option>
     </select>
-    <p class="hint">Two extra lines with sun/moon symbols for writing the same clock as 24-hour time (day vs night reading). Matches CLI <code>--24h</code> / <code>--no-24h</code>.</p>
 
-    <label for="seed">Random seed (optional)</label>
-    <input id="seed" name="seed" type="number" step="1" placeholder="(optional)" />
+    <label for="seed">Random seed</label>
+    <input id="seed" name="seed" type="number" step="1" autocomplete="off" />
+    <p class="hint">Each time you open this page, this is set to a random integer from 100–999. The same seed always produces the same worksheet. Clear it if you want the server to pick a fresh seed on every download.</p>
 
     <div><button type="submit">Download PDF</button></div>
   </form>
   <p><small>v$version</small></p>
+  <script>
+    (function () {
+      var el = document.getElementById("seed");
+      if (!el) return;
+      var n = 100 + Math.floor(Math.random() * 900);
+      if (window.crypto && window.crypto.getRandomValues) {
+        var u = new Uint16Array(1);
+        window.crypto.getRandomValues(u);
+        n = 100 + (u[0] % 900);
+      }
+      el.value = String(n);
+    })();
+  </script>
 </body>
 </html>
