@@ -1,6 +1,6 @@
 # Analog clock worksheet
 
-Generate **US Letter** PDF worksheets with random **analog clocks** and answer lines for **hours** and **minutes** useful for teaching time in early grades.
+Generate **US Letter** PDF worksheets with random **analog clocks** and answer lines for **hours** and **minutes** useful for teaching time in early grades. Optionally, each clock can include **two extra lines** (sun and moon symbols) for writing the same face as **24-hour** time in “AM” and “PM” readings (see `--24h` / **Sun and moon rows** in the web form).
 
 Each page uses a **two-column** layout. Times on a page are **unique** (no duplicate clock times on the same page). The hour hand uses a simplified model: on the hour when minutes are zero; otherwise between the two hour numbers.
 
@@ -44,6 +44,7 @@ clock-worksheet [options] [MINUTES]
 | `--seed N` | Random seed for reproducible times. |
 | `--show-minutes-numbers` / `--no-show-minutes-numbers` | Outer minute labels (5, 10, 15...). |
 | `--show-minutes-ticks` / `--no-show-minutes-ticks` | Small 1-minute tick marks. |
+| `--24h` / `--no-24h` | Include **sun and moon** answer rows for 24-hour (AM/PM) readings of the same dial (default: **on**). `--no-24h` keeps only heures, minutes, and the `______ h ______` line. |
 | `--version` | Print version and exit. |
 
 PDF files are named like `clock_YYYY-MM-DD_HH-MM-SS.pdf` under the output directory.
@@ -53,6 +54,7 @@ PDF files are named like `clock_YYYY-MM-DD_HH-MM-SS.pdf` under the output direct
 ```bash
 clock-worksheet --max-problems 8 --minutes fives --pages 2 --seed 42
 clock-worksheet --max-problems 6 quarter   # same as --minutes quarter
+clock-worksheet --no-24h                   # omit sun/moon rows; shorter answer block
 ```
 
 ## Web UI
@@ -62,6 +64,8 @@ uvicorn analog_clock_worksheet.web:app --host 0.0.0.0 --port 8000
 ```
 
 Open the app in a browser, fill the form, and download the generated PDF. Generated files are also saved under `output/` on the server.
+
+Form options match the CLI where applicable: **Sun and moon rows (24-hour)** controls the same behavior as `--24h` / `--no-24h` (default: shown). Set **Hide** to omit those two lines and use a shorter answer block next to each clock.
 
 ## Customizing the PDF
 

@@ -57,6 +57,7 @@ def worksheet(
     minutes: str = Form("fives"),
     show_minutes_numbers: str = Form("1"),
     show_minutes_ticks: str = Form("1"),
+    answer_24h_rows: str = Form("1"),
     seed: str | None = Form(None),
 ) -> StreamingResponse:
     mode = MinutesMode.from_str(minutes)
@@ -77,6 +78,7 @@ def worksheet(
             minutes_mode=minutes,
             pages=pages,
             footer_app_url=worksheet_public_url(request),
+            answer_24h_rows=_form_on(answer_24h_rows),
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e

@@ -483,11 +483,14 @@ def _draw_answer_blanks(
     font_size: float = 10.0,
     *,
     example: ClockTime | None = None,
+    answer_24h_rows: bool = True,
 ) -> None:
-    """Five lines to the right of a clock: heures/minutes, then h-style and sun/moon blanks.
+    """Lines to the right of a clock: heures/minutes, ``______ h ______``, optional sun/moon 24h rows.
 
-    If ``example`` is set, answers use underscore padding like ``______``. Sun/moon rows use
-    **24-hour** time: sun = AM-style reading of the dial, moon = PM-style (same face, e.g. 03:15 vs 15:15).
+    When ``answer_24h_rows`` is True, two extra lines use sun/moon symbols and **24-hour** time:
+    sun = AM-style reading of the dial, moon = PM-style (e.g. 03:15 vs 15:15).
+
+    If ``example`` is set, answers use underscore padding like ``______``.
     """
     c.setFillColorRGB(0, 0, 0)
     blank = "______"
@@ -499,12 +502,15 @@ def _draw_answer_blanks(
     if example is not None:
         heures_fill = _answer_slot_with_underscores(str(example.hour))
         minutes_fill = _answer_slot_with_underscores(str(example.minute).zfill(2))
-        sun_h = _analog_hour_to_24h(example.hour, afternoon=False)
-        moon_h = _analog_hour_to_24h(example.hour, afternoon=True)
-        sun_h_fill = _answer_slot_with_underscores(f"{sun_h:02d}")
-        moon_h_fill = _answer_slot_with_underscores(f"{moon_h:02d}")
-        sun_m_fill = _answer_slot_with_underscores(f"{example.minute:02d}")
-        moon_m_fill = sun_m_fill
+        if answer_24h_rows:
+            sun_h = _analog_hour_to_24h(example.hour, afternoon=False)
+            moon_h = _analog_hour_to_24h(example.hour, afternoon=True)
+            sun_h_fill = _answer_slot_with_underscores(f"{sun_h:02d}")
+            moon_h_fill = _answer_slot_with_underscores(f"{moon_h:02d}")
+            sun_m_fill = _answer_slot_with_underscores(f"{example.minute:02d}")
+            moon_m_fill = sun_m_fill
+        else:
+            sun_h_fill = sun_m_fill = moon_h_fill = moon_m_fill = blank
     else:
         heures_fill = blank
         minutes_fill = blank
@@ -512,11 +518,16 @@ def _draw_answer_blanks(
 
     base_lead = font_size * 1.25
     step = base_lead * _ANSWER_BLANK_LINE_STEP_MULT
-    y_heures = y_center + 2.0 * step
-    y_minutes = y_center + step
-    y_h_form = y_center
-    y_sun = y_center - step
-    y_moon = y_center - 2.0 * step
+    if answer_24h_rows:
+        y_heures = y_center + 2.0 * step
+        y_minutes = y_center + step
+        y_h_form = y_center
+        y_sun = y_center - step
+        y_moon = y_center - 2.0 * step
+    else:
+        y_heures = y_center + step
+        y_minutes = y_center
+        y_h_form = y_center - step
 
     def _one_line(y: float, label: str, label_font: str, prefix: str) -> None:
         fn = _safe_font_name(font_name)
@@ -594,16 +605,17 @@ def _draw_answer_blanks(
         minutes_fill,
     )
     _h_form_line(y_h_form, heures_fill, minutes_fill)
-    _plain_line(
-        y_sun,
-        f"{_ANSWER_BLANK_SUN_SYMBOL} {sun_h_fill} : {sun_m_fill}",
-        needs_unicode=True,
-    )
-    _plain_line(
-        y_moon,
-        f"{_ANSWER_BLANK_MOON_SYMBOL} {moon_h_fill} : {moon_m_fill}",
-        needs_unicode=True,
-    )
+    if answer_24h_rows:
+        _plain_line(
+            y_sun,
+            f"{_ANSWER_BLANK_SUN_SYMBOL} {sun_h_fill} : {sun_m_fill}",
+            needs_unicode=True,
+        )
+        _plain_line(
+            y_moon,
+            f"{_ANSWER_BLANK_MOON_SYMBOL} {moon_h_fill} : {moon_m_fill}",
+            needs_unicode=True,
+        )
 
 
 def _footer_step_label(minutes_mode_value: str) -> str:
@@ -623,14 +635,18 @@ def _footer_line(
     page: int,
     total_pages: int,
     app_url: str | None = None,
+    *,
+    answer_24h_rows: bool = True,
 ) -> str:
     t = "YES" if show_minutes_ticks else "NO"
     n = "YES" if show_minutes_numbers else "NO"
+    h = "YES" if answer_24h_rows else "NO"
     parts = [
         f"PAGE {page} of {total_pages}",
         f"MINUTE-TICKS: {t}",
         f"MINUTE-NUMS: {n}",
-        f"STEP: {step_label}",   
+        f"STEP: {step_label}",
+        f"24H: {h}",
     ]
     if app_url:
         parts.append(_footer_web_display_label(app_url))
@@ -668,6 +684,7 @@ def build_clock_worksheet_pdf(
     minutes_mode: str = "fives",
     pages: int = 1,
     footer_app_url: str | None = None,
+    answer_24h_rows: bool = True,
 ) -> bytes:
     """
     US Letter worksheet(s) in two columns; answer blanks to the right of each clock.
@@ -744,6 +761,7 @@ def build_clock_worksheet_pdf(
                 cell_cy,
                 font_size=max(8.0, min(11.0, cell_h * 0.1)),
                 example=t if i == 0 else None,
+                answer_24h_rows=answer_24h_rows,
             )
 
         c.setFont(
@@ -760,6 +778,7 @@ def build_clock_worksheet_pdf(
                 page_index + 1,
                 total_pages,
                 app_url=app_url,
+                answer_24h_rows=answer_24h_rows,
             ),
         )
 
@@ -780,6 +799,7 @@ def write_clock_worksheet_pdf(
     minutes_mode: str = "fives",
     pages: int = 1,
     footer_app_url: str | None = None,
+    answer_24h_rows: bool = True,
 ) -> None:
     data = build_clock_worksheet_pdf(
         max_problems,
@@ -790,6 +810,7 @@ def write_clock_worksheet_pdf(
         minutes_mode=minutes_mode,
         pages=pages,
         footer_app_url=footer_app_url,
+        answer_24h_rows=answer_24h_rows,
     )
     if isinstance(out, (str, Path)):
         Path(out).parent.mkdir(parents=True, exist_ok=True)

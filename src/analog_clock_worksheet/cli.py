@@ -86,6 +86,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="Draw the small 1-minute tick marks (default: on).",
     )
     p.add_argument(
+        "--24h",
+        dest="answer_24h_rows",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "Include the sun and moon answer rows (24-hour AM/PM reading of the same face; default: on). "
+            "Use --no-24h for three lines only (heures, minutes, and ______ h ______)."
+        ),
+    )
+    p.add_argument(
         "--version",
         action="version",
         version=f"%(prog)s {__version__}",
@@ -123,6 +133,7 @@ def main(argv: list[str] | None = None) -> int:
             show_minutes_ticks=args.show_minutes_ticks,
             minutes_mode=minutes_mode,
             pages=pages,
+            answer_24h_rows=args.answer_24h_rows,
         )
     except ValueError as e:
         print(f"Error: {e}", file=sys.stderr)
