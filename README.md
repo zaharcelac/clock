@@ -28,15 +28,18 @@ python -m analog_clock_worksheet --help
 ## Command line
 
 ```text
-clock-worksheet [options]
-# or:  python -m analog_clock_worksheet [options]
+clock-worksheet [options] [MINUTES]
+# or:  python -m analog_clock_worksheet [options] [MINUTES]
 ```
+
+`MINUTES` is optional; same values as `--minutes`. Use it as the **last** argument when you prefer not to type `--minutes` (e.g. `clock-worksheet quarter` or `clock-worksheet --max-problems 6 quarter`).
 
 | Option | Description |
 |--------|-------------|
 | `--max-problems N` | Clocks **per page** (default: 6, max: 8). |
 | `--pages P` | Number of pages in one PDF (default: 1, max: 50). |
-| `--minutes MODE` | `exact` | `half` | `quarter` (alias `quater`) | `fives` |
+| `--minutes MODE` | `exact` \| `half` \| `quarter` \| `fives` (default: `fives` if omitted). |
+| `MINUTES` | Same as `--minutes`; must be last if used. Cannot disagree with `--minutes`. |
 | `--output-dir DIR` | Where to write PDFs (default: `output`). |
 | `--seed N` | Random seed for reproducible times. |
 | `--show-minutes-numbers` / `--no-show-minutes-numbers` | Outer minute labels (5, 10, 15...). |
@@ -49,6 +52,7 @@ PDF files are named like `clock_YYYY-MM-DD_HH-MM-SS.pdf` under the output direct
 
 ```bash
 clock-worksheet --max-problems 8 --minutes fives --pages 2 --seed 42
+clock-worksheet --max-problems 6 quarter   # same as --minutes quarter
 ```
 
 ## Web UI

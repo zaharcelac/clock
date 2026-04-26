@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import random
 from datetime import datetime
+from functools import lru_cache
 from io import BytesIO
+from pathlib import Path
 from string import Template
 
 from fastapi import FastAPI, Form, HTTPException
@@ -25,70 +27,18 @@ app = FastAPI(
     description="Generate US Letter PDFs with random analog clock times.",
 )
 
-# string.Template: placeholders are $version / $max_clocks / $max_pages (not str.format, so
-# CSS { ... } does not need escaping and cannot be mistaken for a " font-family" field name).
-_PAGE = Template("""<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Clock worksheet</title>
-  <style>
-    :root { font-family: system-ui, sans-serif; }
-    body { max-width: 32rem; margin: 2rem auto; padding: 0 1rem; }
-    label { display: block; margin: 0.75rem 0 0.25rem; }
-    input, select, button { font: inherit; }
-    input[type=number] { width: 6rem; }
-    select { min-width: 12rem; }
-    button { margin-top: 1rem; padding: 0.4rem 0.8rem; }
-    p.hint { color: #444; font-size: 0.9rem; }
-  </style>
-</head>
-<body>
-  <h1>Analog clock worksheet</h1>
-  <p>Build a US Letter PDF with analog clocks for time practice (one or more pages).</p>
-  <form method="post" action="/worksheet">
-    <label for="max_problems">Clocks on each page</label>
-    <input id="max_problems" name="max_problems" type="number" min="1" max="$max_clocks" value="6" required />
+_INDEX_HTML = Path(__file__).resolve().parent / "templates" / "index.html"
 
-    <label for="pages">Number of pages in the PDF</label>
-    <input id="pages" name="pages" type="number" min="1" max="$max_pages" value="1" required />
 
-    <label for="minutes">Minute hand options</label>
-    <select id="minutes" name="minutes" required>
-      <option value="exact">Exact — on the hour only (:00)</option>
-      <option value="half">Half — :00 and :30</option>
-      <option value="quarter">Quarter — 0, 15, 20, 45</option>
-      <option value="fives" selected>Fives — any 5-minute step</option>
-    </select>
-    <p class="hint">Hour hand: on the hour when minutes are 0; otherwise between the two hour numbers (simplified).</p>
-
-    <label for="show_minutes_numbers">Outer minute numbers (5, 10, 15, …)</label>
-    <select id="show_minutes_numbers" name="show_minutes_numbers">
-      <option value="1" selected>Show</option>
-      <option value="0">Hide</option>
-    </select>
-
-    <label for="show_minutes_ticks">Small 1-minute tick marks</label>
-    <select id="show_minutes_ticks" name="show_minutes_ticks">
-      <option value="1" selected>Show</option>
-      <option value="0">Hide</option>
-    </select>
-
-    <label for="seed">Random seed (optional)</label>
-    <input id="seed" name="seed" type="number" step="1" placeholder="(optional)" />
-
-    <div><button type="submit">Download PDF</button></div>
-  </form>
-  <p><small>v$version</small></p>
-</body>
-</html>
-""")
+@lru_cache(maxsize=1)
+def _index_template() -> Template:
+    # string.Template: $version, $max_clocks, $max_pages (avoids str.format vs CSS `{` clashes).
+    return Template(_INDEX_HTML.read_text(encoding="utf-8"))
 
 
 @app.get("/", response_class=HTMLResponse)
 def index() -> str:
-    return _PAGE.substitute(
+    return _index_template().substitute(
         version=__version__,
         max_clocks=MAX_CLOCKS_PER_PAGE,
         max_pages=MAX_PDF_PAGES,

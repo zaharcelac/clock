@@ -9,17 +9,12 @@ class MinutesMode(str, enum.Enum):
 
     exact = "exact"  # only :00
     half = "half"  # :00 and :30
-    quarter = "quarter"  # 0, 15, 20, 45
+    quarter = "quarter"  # quarter hours: 0, 15, 30, 45
     fives = "fives"  # any multiple of 5
 
     @classmethod
     def from_str(cls, value: str) -> MinutesMode:
         v = (value or "").strip().lower()
-        aliases = {
-            "quater": cls.quarter,  # common misspelling
-        }
-        if v in aliases:
-            return aliases[v]
         return cls(v)
 
 
@@ -29,7 +24,7 @@ def allowed_minutes(mode: MinutesMode) -> list[int]:
     if mode is MinutesMode.half:
         return [0, 30]
     if mode is MinutesMode.quarter:
-        return [0, 15, 20, 45]
+        return [0, 15, 30, 45]
     if mode is MinutesMode.fives:
         return list(range(0, 60, 5))
     raise ValueError(f"Unknown mode: {mode}")

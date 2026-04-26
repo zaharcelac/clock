@@ -522,11 +522,11 @@ def _draw_answer_blanks(
 
 def _footer_step_label(minutes_mode_value: str) -> str:
     """
-    EXACT, HALF, QUATER (quarter), FIVES for the footer STEP: field.
+    EXACT, HALF, QUARTER, FIVES for the footer STEP: field.
     """
     m = (minutes_mode_value or "fives").strip().lower()
-    if m in ("quarter", "quater"):
-        return "QUATER"
+    if m == "quarter":
+        return "QUARTER"
     return m.upper()
 
 

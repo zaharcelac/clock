@@ -11,6 +11,25 @@ from analog_clock_worksheet.minutes_mode import MinutesMode, allowed_minutes
 from analog_clock_worksheet.output_paths import ensure_clock_pdf_path
 from analog_clock_worksheet.pdf_gen import MAX_CLOCKS_PER_PAGE, MAX_PDF_PAGES, write_clock_worksheet_pdf
 
+_MINUTES_CHOICES = [m.value for m in MinutesMode]
+
+
+def _resolve_minutes_mode(args: argparse.Namespace) -> str:
+    """``--minutes`` or optional trailing positional MINUTES; default fives if neither given."""
+    flag = args.minutes
+    pos = args.minutes_pos
+    if flag is not None and pos is not None and flag != pos:
+        print(
+            f"error: --minutes {flag!r} and positional MINUTES {pos!r} disagree",
+            file=sys.stderr,
+        )
+        raise SystemExit(2)
+    if flag is not None:
+        return flag
+    if pos is not None:
+        return pos
+    return "fives"
+
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
@@ -33,12 +52,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--minutes",
         type=str,
-        default="fives",
-        choices=[m.value for m in MinutesMode] + ["quater"],
+        default=None,
+        choices=_MINUTES_CHOICES,
         help=(
             "Which minute hand positions to allow: "
             "exact (:00 only), half (:00, :30), "
-            "quarter (0, 15, 20, 45; 'quater' accepted), fives (step of 5)."
+            "quarter (:00, :15, :30, :45), fives (step of 5). "
+            "Default: fives; you can also pass MINUTES as the last argument (see below)."
         ),
     )
     p.add_argument(
@@ -70,6 +90,17 @@ def build_parser() -> argparse.ArgumentParser:
         action="version",
         version=f"%(prog)s {__version__}",
     )
+    p.add_argument(
+        "minutes_pos",
+        nargs="?",
+        default=None,
+        metavar="MINUTES",
+        choices=_MINUTES_CHOICES,
+        help=(
+            "Optional minute mode, same values as --minutes. "
+            "Useful as a trailing argument, e.g. %(prog)s --max-problems 6 quarter"
+        ),
+    )
     return p
 
 
@@ -77,7 +108,8 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     n = min(MAX_CLOCKS_PER_PAGE, max(1, int(args.max_problems)))
     pages = max(1, min(MAX_PDF_PAGES, int(args.pages)))
-    mode = MinutesMode.from_str(args.minutes)
+    minutes_mode = _resolve_minutes_mode(args)
+    mode = MinutesMode.from_str(minutes_mode)
     minutes_list = list(allowed_minutes(mode))
     rng = random.Random(args.seed)
     out_path = ensure_clock_pdf_path(output_dir=args.output_dir)
@@ -89,7 +121,7 @@ def main(argv: list[str] | None = None) -> int:
             rng=rng,
             show_minutes_numbers=args.show_minutes_numbers,
             show_minutes_ticks=args.show_minutes_ticks,
-            minutes_mode=args.minutes,
+            minutes_mode=minutes_mode,
             pages=pages,
         )
     except ValueError as e:
