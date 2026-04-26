@@ -16,6 +16,11 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 
 from analog_clock_worksheet import __version__
 from analog_clock_worksheet.public_url import worksheet_public_url
+from analog_clock_worksheet.public_web_limits import (
+    client_rate_limit_key,
+    rate_limit_allow,
+    save_pdf_to_disk,
+)
 from analog_clock_worksheet.minutes_mode import MinutesMode, allowed_minutes
 from analog_clock_worksheet.output_paths import clock_pdf_basename, ensure_clock_pdf_path
 from analog_clock_worksheet.pdf_gen import (
@@ -106,6 +111,11 @@ def worksheet(
     answer_24h_rows: str = Form("1"),
     seed: str | None = Form(None),
 ) -> StreamingResponse:
+    if not rate_limit_allow(client_rate_limit_key(request.scope)):
+        raise HTTPException(
+            status_code=429,
+            detail="Too many worksheet downloads from this address. Try again in a minute.",
+        )
     mode = MinutesMode.from_str(minutes)
     minute_values = list(allowed_minutes(mode))
     rng: random.Random | None = None
@@ -130,8 +140,9 @@ def worksheet(
         raise HTTPException(status_code=400, detail=str(e)) from e
     when = datetime.now()
     name = clock_pdf_basename(when=when)
-    out_path = ensure_clock_pdf_path(when=when)
-    out_path.write_bytes(data)
+    if save_pdf_to_disk():
+        out_path = ensure_clock_pdf_path(when=when)
+        out_path.write_bytes(data)
     buf = BytesIO(data)
     return StreamingResponse(
         buf,

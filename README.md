@@ -60,7 +60,7 @@ clock-worksheet --no-24h                   # omit sun/moon rows; shorter answer 
 uvicorn analog_clock_worksheet.web:app --host 0.0.0.0 --port 8000
 ```
 
-Open the app in a browser, fill the form, and download the generated PDF. Generated files are also saved under `output/` on the server.
+Open the app in a browser, fill the form, and download the generated PDF. By default each response is also written under `output/` on the server; see **Public exposure** below to turn that off.
 
 Form options match the CLI where applicable: **Sun and moon rows (24-hour)** controls the same behavior as `--24h` / `--no-24h` (default: shown). Set **Hide** to omit those two lines and use a shorter answer block next to each clock.
 
@@ -79,6 +79,16 @@ In Docker, set the same environment variable (see `Dockerfile` comments). Your p
 
 Opening the public URL **without** a trailing slash (e.g. `https://host/clock`) is handled without a **307** redirect to `/clock/`.
 
+### Public exposure (abuse and load)
+
+The worksheet endpoint does **CPU + memory** work (ReportLab) on every POST. For an open Internet deployment, combine **layers** as appropriate:
+
+| Measure | Role |
+|--------|------|
+| **Reverse proxy limits** | Nginx/Traefik/Caddy rate limits, `max_body_size`, connection limits, optional WAF or CDN (Cloudflare, etc.). |
+| **`WORKSHEET_RATE_LIMIT_PER_MINUTE`** | Optional per-client cap on POST `/worksheet` (first `X-Forwarded-For` hop, else socket IP). In-memory, **per process**; use proxy limits if you run many replicas. Example: `export WORKSHEET_RATE_LIMIT_PER_MINUTE=30`. Unset or `0` = no in-app limit. |
+| **`SAVE_PDF_TO_DISK`** | Set to `0` to **stop** writing every download to `output/` (stops anonymous disk fill; the PDF is still returned in the HTTP response). Default is on for backward compatibility. |
+
 ## Customizing the PDF
 
 Most layout, fonts, tick sizes, hand arrows, header/footer text, and answer-line labels are controlled by **module-level variables** in:
@@ -91,12 +101,14 @@ Examples: `_WORKSHEET_HEADER_TEXT`, `_WORKSHEET_FOOTER_FIELD_SEPARATOR`, hand le
 
 ```text
 src/analog_clock_worksheet/
-  pdf_gen.py      # PDF rendering and worksheet layout
-  cli.py          # Command-line entry
-  web.py          # FastAPI app
-  minutes_mode.py # Minute-step modes
-  geometry.py     # Simplified hand angles
-  output_paths.py # Default output paths / filenames
+  pdf_gen.py           # PDF rendering and worksheet layout
+  cli.py               # Command-line entry
+  web.py               # FastAPI app
+  public_web_limits.py # Rate limit + disk-save toggle for public web
+  public_url.py        # Public URL for PDF footer behind proxies
+  minutes_mode.py      # Minute-step modes
+  geometry.py          # Simplified hand angles
+  output_paths.py      # Default output paths / filenames
 ```
 
 ## License

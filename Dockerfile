@@ -9,6 +9,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 # When the app is exposed as https://your-host/some-prefix/, set e.g.:
 #   ROOT_PATH=/some-prefix
 # so the form posts to /some-prefix/worksheet (see README).
+# For a public Internet deployment consider:
+#   SAVE_PDF_TO_DISK=0
+#   WORKSHEET_RATE_LIMIT_PER_MINUTE=30
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
