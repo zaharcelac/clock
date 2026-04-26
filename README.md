@@ -34,7 +34,7 @@ clock-worksheet [options]
 
 | Option | Description |
 |--------|-------------|
-| `--max-problems N` | Clocks **per page** (default: 6, max: 10). |
+| `--max-problems N` | Clocks **per page** (default: 6, max: 8). |
 | `--pages P` | Number of pages in one PDF (default: 1, max: 50). |
 | `--minutes MODE` | `exact` | `half` | `quarter` (alias `quater`) | `fives` |
 | `--output-dir DIR` | Where to write PDFs (default: `output`). |

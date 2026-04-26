@@ -1,0 +1,2 @@
+Noto Sans Symbols 2 — SIL Open Font License 1.1.
+https://github.com/notofonts/symbols/blob/main/OFL.txt

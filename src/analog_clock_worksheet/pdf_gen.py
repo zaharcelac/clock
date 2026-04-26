@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import math
+import os
 import random
+from functools import lru_cache
 from io import BytesIO
 from pathlib import Path
 from typing import BinaryIO
@@ -12,6 +14,7 @@ from reportlab.lib.pagesizes import letter
 from reportlab.lib.units import inch
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.pdfmetrics import stringWidth
+from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.pdfgen import canvas
 
 
@@ -46,6 +49,84 @@ def _font_size_pt(size: float) -> float:
 def _string_width(text: str, font_name: str, size: float) -> float:
     return stringWidth(text, _safe_font_name(font_name), _font_size_pt(size))
 
+
+# Built-in PostScript fonts (Helvetica, …) only cover Latin-1; extended Latin/symbols need a TTF.
+_UNICODE_FONT_ENV = "ANALOG_CLOCK_WORKSHEET_UNICODE_FONT"
+_UNICODE_FONT_RL_NAME = "AnalogClockUniSans"
+# Supplementary-plane emoji (e.g. U+1F323 sun) needs an emoji-capable TTF, separate from DejaVu.
+_EMOJI_FONT_ENV = "ANALOG_CLOCK_WORKSHEET_EMOJI_FONT"
+_EMOJI_FONT_RL_NAME = "AnalogClockEmoji"
+
+
+@lru_cache(maxsize=1)
+def _unicode_draw_font_name() -> str | None:
+    """
+    Register and return a ReportLab font name for broad Unicode coverage, or None.
+
+    Resolution order: environment variable ANALOG_CLOCK_WORKSHEET_UNICODE_FONT,
+    packaged ``fonts/DejaVuSans.ttf``, then common Linux locations (DejaVu).
+    """
+    candidates: list[Path] = []
+    env = os.environ.get(_UNICODE_FONT_ENV, "").strip()
+    if env:
+        candidates.append(Path(env))
+    candidates.append(Path(__file__).resolve().parent / "fonts" / "DejaVuSans.ttf")
+    candidates.extend(
+        [
+            Path("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"),
+            Path("/usr/share/fonts/TTF/DejaVuSans.ttf"),
+            Path("/usr/share/fonts/dejavu/DejaVuSans.ttf"),
+        ]
+    )
+    for path in candidates:
+        if not path.is_file():
+            continue
+        try:
+            pdfmetrics.registerFont(TTFont(_UNICODE_FONT_RL_NAME, str(path)))
+            return _UNICODE_FONT_RL_NAME
+        except Exception:
+            continue
+    return None
+
+
+@lru_cache(maxsize=1)
+def _emoji_draw_font_name() -> str | None:
+    """
+    Register a font that includes emoji/pictographic code points (plane > BMP).
+
+    Set ANALOG_CLOCK_WORKSHEET_EMOJI_FONT to a ``.ttf`` path, or rely on common
+    Linux locations (Noto Sans Symbols 2, optional Noto Emoji).
+    """
+    candidates: list[Path] = []
+    env = os.environ.get(_EMOJI_FONT_ENV, "").strip()
+    if env:
+        candidates.append(Path(env))
+    # NotoSansSymbols2: includes supplementary pictographs (e.g. U+1F323); works with ReportLab TTFont.
+    # NotoColorEmoji often lacks a ``loca`` table and fails TTFont — avoid listing it here.
+    candidates.append(
+        Path(__file__).resolve().parent / "fonts" / "NotoSansSymbols2-Regular.ttf"
+    )
+    candidates.extend(
+        [
+            Path("/usr/share/fonts/truetype/noto/NotoSansSymbols2-Regular.ttf"),
+            Path("/usr/share/fonts/truetype/noto/NotoEmoji-Regular.ttf"),
+        ]
+    )
+    for path in candidates:
+        if not path.is_file():
+            continue
+        try:
+            pdfmetrics.registerFont(TTFont(_EMOJI_FONT_RL_NAME, str(path)))
+            return _EMOJI_FONT_RL_NAME
+        except Exception:
+            continue
+    return None
+
+
+def _uses_astral_unicode(s: str) -> bool:
+    return any(ord(ch) > 0xFFFF for ch in s)
+
+
 from analog_clock_worksheet.geometry import (
     ClockTime,
     hour_hand_angle_radians,
@@ -57,8 +138,8 @@ from analog_clock_worksheet.geometry import (
 PAGE_W, PAGE_H = letter
 MARGIN = 0.5 * inch
 
-# Fixed two columns; at most 5 rows × 2 = 10 clocks.
-MAX_CLOCKS_PER_PAGE = 10
+# Fixed two columns; at most 4 rows × 2 = 8 clocks.
+MAX_CLOCKS_PER_PAGE = 8
 # Maximum number of worksheet pages in one PDF (CLI / web).
 MAX_PDF_PAGES = 50
 COLUMNS = 2
@@ -85,6 +166,22 @@ _ANSWER_BLANK_HOURS_WORD_FONT_NAME = "Helvetica-Bold"
 _ANSWER_BLANK_MINUTES_WORD_FONT_NAME = "Helvetica-Bold"
 _ANSWER_BLANK_WORD_BUMP_PT = 2.5
 _ANSWER_BLANK_WORD_SCALE = 1.0
+# Latin text in ``_plain_line`` (sun/moon tails, ASCII fallbacks). ``None`` = use ``font_name`` from
+# ``_draw_answer_blanks``. The ``______ h ______`` line uses the same base/bold fonts as heures/minutes.
+_ANSWER_BLANK_PLAIN_FONT_NAME: str | None = None
+# Distance between consecutive answer-line baselines = ``font_size * 1.25 *`` this factor.
+# Larger values spread the five lines apart (try 0.55–0.95); smaller packs them tighter.
+_ANSWER_BLANK_LINE_STEP_MULT = 1.75
+# Horizontal placement: left edge of answer text is ``clock_cx + clock_r *`` this (past face + outer ring).
+_ANSWER_BLANK_PAST_FACE_R_MULT = 1.26
+# Extra horizontal offset in **points** after radial + column padding; increase to move lines right, away from the clock.
+_ANSWER_BLANK_GAP_FROM_CLOCK_PT = 10.0
+# Extra lines below heures/minutes (digital-style and day/night); UTF symbols for PDF.
+_ANSWER_BLANK_SUN_SYMBOL = "\U0001f323"  # U+1F323 (needs emoji TTF; see _emoji_draw_font_name)
+_ANSWER_BLANK_MOON_SYMBOL = "\u263d"  # ☽
+# If no Unicode TTF is available, sun/moon lines use these instead of missing-glyph squares.
+_ANSWER_BLANK_SUN_FALLBACK = "(jour)"
+_ANSWER_BLANK_MOON_FALLBACK = "(nuit)"
 
 # Long tick: outer tip sits this many points inside the face circle (r).
 _FACE_CIRCLE_INSET_PT = 1.25
@@ -117,7 +214,7 @@ _HOUR_FONT_MAX_PT = 18.0
 # Outer minute labels (0, 5, 10, …, 55): same sizing pattern as the hour numbers.
 _OUTER_MINUTE_FONT_NAME = "Helvetica-Bold"
 _OUTER_MINUTE_FONT_SIZE_FRAC = 0.1
-_OUTER_MINUTE_FONT_MIN_PT = 5.0
+_OUTER_MINUTE_FONT_MIN_PT = 7.0
 _OUTER_MINUTE_FONT_MAX_PT = 7.0
 
 # Clock hands: tip distance from center = ``radius * length_frac``; stroke in points.
@@ -328,7 +425,7 @@ def _draw_answer_blanks(
     font_name: str = "Helvetica",
     font_size: float = 10.0,
 ) -> None:
-    """Two lines to the right of a clock: underlines, then larger hour/minute labels."""
+    """Five lines to the right of a clock: heures/minutes, then h-style and sun/moon blanks."""
     c.setFillColorRGB(0, 0, 0)
     blank = "______"
     sep = "  "
@@ -338,9 +435,12 @@ def _draw_answer_blanks(
     )
 
     base_lead = font_size * 1.25
-    line_spacing = base_lead * 2.0  # double the previous gap between baselines
-    y1 = y_center + line_spacing * 0.5
-    y2 = y1 - line_spacing
+    step = base_lead * _ANSWER_BLANK_LINE_STEP_MULT
+    y_heures = y_center + 2.0 * step
+    y_minutes = y_center + step
+    y_h_form = y_center
+    y_sun = y_center - step
+    y_moon = y_center - 2.0 * step
 
     def _one_line(y: float, label: str, label_font: str) -> None:
         fn = _safe_font_name(font_name)
@@ -352,8 +452,72 @@ def _draw_answer_blanks(
         c.setFont(_safe_font_name(label_font), _font_size_pt(label_size))
         c.drawString(x_left + w_b + w_s, y, label)
 
-    _one_line(y1, _ANSWER_BLANK_HOURS_TEXT, _ANSWER_BLANK_HOURS_WORD_FONT_NAME)
-    _one_line(y2, _ANSWER_BLANK_MINUTES_TEXT, _ANSWER_BLANK_MINUTES_WORD_FONT_NAME)
+    def _h_form_line(y: float) -> None:
+        """``______`` + ``h`` + ``______`` with same base/bold/sizing as heures/minutes."""
+        fn = _safe_font_name(font_name)
+        fs = _font_size_pt(font_size)
+        w_b = _string_width(blank, font_name, font_size)
+        w_s = _string_width(sep, font_name, font_size)
+        mid_font = _ANSWER_BLANK_HOURS_WORD_FONT_NAME
+        mid_fs = _font_size_pt(label_size)
+        w_h = _string_width("h", mid_font, label_size)
+
+        c.setFont(fn, fs)
+        c.drawString(x_left, y, blank)
+        x_h = x_left + w_b + w_s
+        c.setFont(_safe_font_name(mid_font), mid_fs)
+        c.drawString(x_h, y, "h")
+        x_b2 = x_h + w_h + w_s
+        c.setFont(fn, fs)
+        c.drawString(x_b2, y, blank)
+
+    def _plain_line(y: float, text: str, *, needs_unicode: bool = False) -> None:
+        fs = _font_size_pt(font_size)
+        plain = _ANSWER_BLANK_PLAIN_FONT_NAME or font_name
+        latin = _safe_font_name(plain)
+        if not needs_unicode:
+            c.setFont(latin, fs)
+            c.drawString(x_left, y, text)
+            return
+
+        uni = _unicode_draw_font_name()
+        body_fn = uni or latin
+
+        # Sun as emoji (astral code point): emoji font for glyph, regular uni (or Latin) for the tail.
+        if text.startswith(_ANSWER_BLANK_SUN_SYMBOL) and _uses_astral_unicode(
+            _ANSWER_BLANK_SUN_SYMBOL
+        ):
+            rest = text[len(_ANSWER_BLANK_SUN_SYMBOL) :]
+            emoji_fn = _emoji_draw_font_name()
+            if emoji_fn:
+                c.setFont(emoji_fn, fs)
+                c.drawString(x_left, y, _ANSWER_BLANK_SUN_SYMBOL)
+                w0 = stringWidth(_ANSWER_BLANK_SUN_SYMBOL, emoji_fn, fs)
+                c.setFont(body_fn, fs)
+                c.drawString(x_left + w0, y, rest)
+                return
+            text = _ANSWER_BLANK_SUN_FALLBACK + rest
+
+        if uni:
+            c.setFont(body_fn, fs)
+        else:
+            text = text.replace(_ANSWER_BLANK_MOON_SYMBOL, _ANSWER_BLANK_MOON_FALLBACK)
+            c.setFont(latin, fs)
+        c.drawString(x_left, y, text)
+
+    _one_line(y_heures, _ANSWER_BLANK_HOURS_TEXT, _ANSWER_BLANK_HOURS_WORD_FONT_NAME)
+    _one_line(y_minutes, _ANSWER_BLANK_MINUTES_TEXT, _ANSWER_BLANK_MINUTES_WORD_FONT_NAME)
+    _h_form_line(y_h_form)
+    _plain_line(
+        y_sun,
+        f"{_ANSWER_BLANK_SUN_SYMBOL} {blank} : {blank}",
+        needs_unicode=True,
+    )
+    _plain_line(
+        y_moon,
+        f"{_ANSWER_BLANK_MOON_SYMBOL} {blank} : {blank}",
+        needs_unicode=True,
+    )
 
 
 def _footer_step_label(minutes_mode_value: str) -> str:
@@ -476,11 +640,12 @@ def build_clock_worksheet_pdf(
                 show_minutes_numbers=show_minutes_numbers,
                 show_minutes_ticks=show_minutes_ticks,
             )
-            # Start answers past outer minute labels (~1.12r) and padding
+            # Start answers past outer minute labels and padding (see _ANSWER_BLANK_* layout constants).
             text_x = (
                 clock_cx
-                + clock_r * 1.26
+                + clock_r * _ANSWER_BLANK_PAST_FACE_R_MULT
                 + max(0.08 * inch, col_w * 0.02)
+                + _ANSWER_BLANK_GAP_FROM_CLOCK_PT
             )
             _draw_answer_blanks(
                 c, text_x, cell_cy, font_size=max(8.0, min(11.0, cell_h * 0.1))

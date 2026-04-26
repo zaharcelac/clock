@@ -1,0 +1,2 @@
+DejaVu Sans is part of the DejaVu font family (Bitstream Vera derivative).
+Full license: https://dejavu-fonts.github.io/License.html
