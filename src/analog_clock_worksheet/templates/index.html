@@ -20,7 +20,12 @@
   <p>Build a US Letter PDF with analog clocks for time practice (one or more pages).</p>
   <form method="post" action="/worksheet">
     <label for="max_problems">Clocks on each page</label>
-    <input id="max_problems" name="max_problems" type="number" min="1" max="$max_clocks" value="6" required />
+    <select id="max_problems" name="max_problems" required>
+      <option value="2">2</option>
+      <option value="4">4</option>
+      <option value="6">6</option>
+      <option value="8"selected>8</option>
+    </select>
 
     <label for="pages">Number of pages in the PDF</label>
     <input id="pages" name="pages" type="number" min="1" max="$max_pages" value="1" required />

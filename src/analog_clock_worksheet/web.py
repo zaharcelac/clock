@@ -9,10 +9,11 @@ from io import BytesIO
 from pathlib import Path
 from string import Template
 
-from fastapi import FastAPI, Form, HTTPException
+from fastapi import FastAPI, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, StreamingResponse
 
 from analog_clock_worksheet import __version__
+from analog_clock_worksheet.public_url import worksheet_public_url
 from analog_clock_worksheet.minutes_mode import MinutesMode, allowed_minutes
 from analog_clock_worksheet.output_paths import clock_pdf_basename, ensure_clock_pdf_path
 from analog_clock_worksheet.pdf_gen import (
@@ -32,7 +33,7 @@ _INDEX_HTML = Path(__file__).resolve().parent / "templates" / "index.html"
 
 @lru_cache(maxsize=1)
 def _index_template() -> Template:
-    # string.Template: $version, $max_clocks, $max_pages (avoids str.format vs CSS `{` clashes).
+    # string.Template: $version, $max_pages (avoids str.format vs CSS `{` clashes).
     return Template(_INDEX_HTML.read_text(encoding="utf-8"))
 
 
@@ -40,7 +41,6 @@ def _index_template() -> Template:
 def index() -> str:
     return _index_template().substitute(
         version=__version__,
-        max_clocks=MAX_CLOCKS_PER_PAGE,
         max_pages=MAX_PDF_PAGES,
     )
 
@@ -51,6 +51,7 @@ def _form_on(v: str) -> bool:
 
 @app.post("/worksheet")
 def worksheet(
+    request: Request,
     max_problems: int = Form(6, ge=1, le=MAX_CLOCKS_PER_PAGE),
     pages: int = Form(1, ge=1, le=MAX_PDF_PAGES),
     minutes: str = Form("fives"),
@@ -75,6 +76,7 @@ def worksheet(
             show_minutes_ticks=_form_on(show_minutes_ticks),
             minutes_mode=minutes,
             pages=pages,
+            footer_app_url=worksheet_public_url(request),
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e

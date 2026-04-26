@@ -50,6 +50,28 @@ def _string_width(text: str, font_name: str, size: float) -> float:
     return stringWidth(text, _safe_font_name(font_name), _font_size_pt(size))
 
 
+def _resolve_footer_app_url(explicit: str | None) -> str | None:
+    """First non-empty ``explicit``, else :envvar:`ANALOG_CLOCK_WORKSHEET_APP_URL`; normalized, no trailing slash."""
+    for cand in (explicit, os.environ.get(_FOOTER_APP_URL_ENV)):
+        s = (cand or "").strip()
+        if s:
+            return s.rstrip("/")
+    return None
+
+
+def _footer_web_display_label(url: str) -> str:
+    """``WEB: …`` for footer; no ``http(s)://`` prefix; shorten very long host/path."""
+    u = url.strip()
+    lower = u.lower()
+    for prefix in ("https://", "http://"):
+        if lower.startswith(prefix):
+            u = u[len(prefix) :].lstrip("/")
+            break
+    if len(u) > _FOOTER_WEB_URL_MAX_CHARS:
+        u = u[: _FOOTER_WEB_URL_MAX_CHARS - 1] + "…"
+    return f" {u}"
+
+
 # Built-in PostScript fonts (Helvetica, …) only cover Latin-1; extended Latin/symbols need a TTF.
 _UNICODE_FONT_ENV = "ANALOG_CLOCK_WORKSHEET_UNICODE_FONT"
 _UNICODE_FONT_RL_NAME = "AnalogClockUniSans"
@@ -157,6 +179,9 @@ _WORKSHEET_FOOTER_FIELD_SEPARATOR = "|"
 # Page bottom to lowest grid content; leaves room for the footer line above y=0.
 _FOOTER_LINE_BASELINE_Y = 0.4 * inch
 _WORKSHEET_FOOTER_GRID_LIFT = 0.3 * inch  # add to bottom margin to lift grid
+# Fallback public URL for PDF footer if ``footer_app_url`` is not passed (e.g. CLI). Full URL including path prefix.
+_FOOTER_APP_URL_ENV = "ANALOG_CLOCK_WORKSHEET_APP_URL"
+_FOOTER_WEB_URL_MAX_CHARS = 96
 
 # Answer lines beside each clock: text after the underline, and PostScript font per word.
 # Size is max(base + bump, base * scale) where ``base`` is the blank line’s ``font_size``.
@@ -597,15 +622,18 @@ def _footer_line(
     step_label: str,
     page: int,
     total_pages: int,
+    app_url: str | None = None,
 ) -> str:
     t = "YES" if show_minutes_ticks else "NO"
     n = "YES" if show_minutes_numbers else "NO"
     parts = [
+        f"PAGE {page} of {total_pages}",
         f"MINUTE-TICKS: {t}",
         f"MINUTE-NUMS: {n}",
-        f"STEP: {step_label}",
-        f"PAGE {page} of {total_pages}",
+        f"STEP: {step_label}",   
     ]
+    if app_url:
+        parts.append(_footer_web_display_label(app_url))
     return f" {_WORKSHEET_FOOTER_FIELD_SEPARATOR} ".join(parts)
 
 
@@ -639,6 +667,7 @@ def build_clock_worksheet_pdf(
     show_minutes_ticks: bool = True,
     minutes_mode: str = "fives",
     pages: int = 1,
+    footer_app_url: str | None = None,
 ) -> bytes:
     """
     US Letter worksheet(s) in two columns; answer blanks to the right of each clock.
@@ -649,6 +678,7 @@ def build_clock_worksheet_pdf(
     r = rng or random.Random()
     n = min(MAX_CLOCKS_PER_PAGE, max(1, int(max_problems)))
     total_pages = max(1, min(MAX_PDF_PAGES, int(pages)))
+    app_url = _resolve_footer_app_url(footer_app_url)
 
     buf = BytesIO()
     c = canvas.Canvas(buf, pagesize=letter)
@@ -673,9 +703,9 @@ def build_clock_worksheet_pdf(
         times = _random_times(n, minute_values, r)
 
         c.setFont(
-        _safe_font_name(_WORKSHEET_HEADER_FONT_NAME),
-        _font_size_pt(_WORKSHEET_HEADER_FONT_SIZE_PT),
-    )
+            _safe_font_name(_WORKSHEET_HEADER_FONT_NAME),
+            _font_size_pt(_WORKSHEET_HEADER_FONT_SIZE_PT),
+        )
         c.drawCentredString(
             PAGE_W / 2,
             PAGE_H - MARGIN - 0.2 * inch,
@@ -729,6 +759,7 @@ def build_clock_worksheet_pdf(
                 step,
                 page_index + 1,
                 total_pages,
+                app_url=app_url,
             ),
         )
 
@@ -748,6 +779,7 @@ def write_clock_worksheet_pdf(
     show_minutes_ticks: bool = True,
     minutes_mode: str = "fives",
     pages: int = 1,
+    footer_app_url: str | None = None,
 ) -> None:
     data = build_clock_worksheet_pdf(
         max_problems,
@@ -757,6 +789,7 @@ def write_clock_worksheet_pdf(
         show_minutes_ticks=show_minutes_ticks,
         minutes_mode=minutes_mode,
         pages=pages,
+        footer_app_url=footer_app_url,
     )
     if isinstance(out, (str, Path)):
         Path(out).parent.mkdir(parents=True, exist_ok=True)
