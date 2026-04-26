@@ -10,10 +10,13 @@ from io import BytesIO
 from pathlib import Path
 from typing import BinaryIO
 
+from reportlab.graphics import renderPDF
+from reportlab.graphics.barcode.qr import QrCodeWidget
+from reportlab.graphics.shapes import Drawing
 from reportlab.lib.pagesizes import letter
 from reportlab.lib.units import inch
 from reportlab.pdfbase import pdfmetrics
-from reportlab.pdfbase.pdfmetrics import stringWidth
+from reportlab.pdfbase.pdfmetrics import getAscentDescent, stringWidth
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.pdfgen import canvas
 
@@ -59,8 +62,8 @@ def _resolve_footer_app_url(explicit: str | None) -> str | None:
     return None
 
 
-def _footer_web_display_label(url: str) -> str:
-    """``WEB: …`` for footer; no ``http(s)://`` prefix; shorten very long host/path."""
+def _footer_web_host_path(url: str) -> str:
+    """Host/path for display and QR label: no ``http(s)://``; shorten very long text."""
     u = url.strip()
     lower = u.lower()
     for prefix in ("https://", "http://"):
@@ -69,7 +72,27 @@ def _footer_web_display_label(url: str) -> str:
             break
     if len(u) > _FOOTER_WEB_URL_MAX_CHARS:
         u = u[: _FOOTER_WEB_URL_MAX_CHARS - 1] + "…"
-    return f" {u}"
+    return u
+
+
+def _footer_web_visible_text(url: str) -> str:
+    """Single-line ``WEB: …`` label matching the visible footer (scheme stripped)."""
+    return f"{_footer_web_host_path(url)}"
+
+
+def _footer_qr_payload(url: str) -> str:
+    """
+    String embedded in the QR code: same URL as the worksheet, scannable by phones.
+
+    Uses the resolved URL; if it has no scheme, assumes ``https://``.
+    """
+    u = (url or "").strip()
+    if not u:
+        return u
+    lower = u.lower()
+    if lower.startswith("http://") or lower.startswith("https://"):
+        return u
+    return f"https://{u.lstrip('/')}"
 
 
 # Built-in PostScript fonts (Helvetica, …) only cover Latin-1; extended Latin/symbols need a TTF.
@@ -182,6 +205,11 @@ _WORKSHEET_FOOTER_GRID_LIFT = 0.3 * inch  # add to bottom margin to lift grid
 # Fallback public URL for PDF footer if ``footer_app_url`` is not passed (e.g. CLI). Full URL including path prefix.
 _FOOTER_APP_URL_ENV = "ANALOG_CLOCK_WORKSHEET_APP_URL"
 _FOOTER_WEB_URL_MAX_CHARS = 96
+# Inline QR to the left of ``WEB: …``; size and gap in points (text baseline alignment).
+_FOOTER_QR_SIZE_MULT = 3.5
+_FOOTER_QR_GAP_PT = 2.0
+# Extra bottom margin (grid lift) when QR is drawn — QR is taller than the text cap height.
+_FOOTER_QR_GRID_LIFT_MULT = 0.85
 
 # Answer lines beside each clock: text after the underline, and PostScript font per word.
 # Size is max(base + bump, base * scale) where ``base`` is the blank line’s ``font_size``.
@@ -628,6 +656,27 @@ def _footer_step_label(minutes_mode_value: str) -> str:
     return m.upper()
 
 
+def _footer_meta_segments(
+    show_minutes_ticks: bool,
+    show_minutes_numbers: bool,
+    step_label: str,
+    page: int,
+    total_pages: int,
+    *,
+    answer_24h_rows: bool,
+) -> list[str]:
+    t = "YES" if show_minutes_ticks else "NO"
+    n = "YES" if show_minutes_numbers else "NO"
+    h = "YES" if answer_24h_rows else "NO"
+    return [
+        f"PAGE {page} of {total_pages}",
+        f"MINUTE-TICKS: {t}",
+        f"MINUTE-NUMS: {n}",
+        f"STEP: {step_label}",
+        f"24H: {h}",
+    ]
+
+
 def _footer_line(
     show_minutes_ticks: bool,
     show_minutes_numbers: bool,
@@ -638,19 +687,89 @@ def _footer_line(
     *,
     answer_24h_rows: bool = True,
 ) -> str:
-    t = "YES" if show_minutes_ticks else "NO"
-    n = "YES" if show_minutes_numbers else "NO"
-    h = "YES" if answer_24h_rows else "NO"
-    parts = [
-        f"PAGE {page} of {total_pages}",
-        f"MINUTE-TICKS: {t}",
-        f"MINUTE-NUMS: {n}",
-        f"STEP: {step_label}",
-        f"24H: {h}",
-    ]
+    sep = f" {_WORKSHEET_FOOTER_FIELD_SEPARATOR} "
+    parts = _footer_meta_segments(
+        show_minutes_ticks,
+        show_minutes_numbers,
+        step_label,
+        page,
+        total_pages,
+        answer_24h_rows=answer_24h_rows,
+    )
+    s = sep.join(parts)
     if app_url:
-        parts.append(_footer_web_display_label(app_url))
-    return f" {_WORKSHEET_FOOTER_FIELD_SEPARATOR} ".join(parts)
+        s += sep + _footer_web_visible_text(app_url)
+    return s
+
+
+def _draw_footer_qr(
+    c: canvas.Canvas,
+    x: float,
+    y_bottom: float,
+    size: float,
+    data: str,
+) -> None:
+    """Draw a QR square with bottom-left at ``(x, y_bottom)``, ``data`` as payload."""
+    qr = QrCodeWidget(value=str(data))
+    qr.barWidth = float(size)
+    qr.barHeight = float(size)
+    b = qr.getBounds()
+    w, h = b[2] - b[0], b[3] - b[1]
+    drawing = Drawing(w, h)
+    drawing.add(qr)
+    renderPDF.draw(drawing, c, x, y_bottom)
+
+
+def _draw_worksheet_footer(
+    c: canvas.Canvas,
+    *,
+    show_minutes_ticks: bool,
+    show_minutes_numbers: bool,
+    step_label: str,
+    page: int,
+    total_pages: int,
+    app_url: str | None,
+    answer_24h_rows: bool,
+) -> None:
+    """One footer row: meta fields, ``WEB: …``, then inline QR last when ``app_url`` is set."""
+    fn = _safe_font_name(_WORKSHEET_FOOTER_FONT_NAME)
+    fs = _font_size_pt(_WORKSHEET_FOOTER_FONT_SIZE_PT)
+    c.setFont(fn, fs)
+    y = _FOOTER_LINE_BASELINE_Y
+    sep = f" {_WORKSHEET_FOOTER_FIELD_SEPARATOR} "
+    pieces = _footer_meta_segments(
+        show_minutes_ticks,
+        show_minutes_numbers,
+        step_label,
+        page,
+        total_pages,
+        answer_24h_rows=answer_24h_rows,
+    )
+    left_text = sep.join(pieces)
+
+    if not app_url:
+        c.drawCentredString(PAGE_W / 2, y, left_text)
+        return
+
+    left_with_sep = left_text + sep
+    web_vis = _footer_web_visible_text(app_url)
+    qr_data = _footer_qr_payload(app_url)
+    qr_sz = fs * _FOOTER_QR_SIZE_MULT
+    gap = _FOOTER_QR_GAP_PT
+    w_left = stringWidth(left_with_sep, fn, fs)
+    w_web = stringWidth(web_vis, fn, fs)
+    total_w = w_left + w_web + gap + qr_sz
+    x0 = PAGE_W / 2 - total_w / 2.0
+
+    c.drawString(x0, y, left_with_sep)
+    x_web = x0 + w_left
+    c.drawString(x_web, y, web_vis)
+    x_qr = x_web + w_web + gap
+    # Vertically center the QR with the footer text (typographic center vs baseline).
+    asc, desc = getAscentDescent(fn, fs)
+    y_text_center = y + (asc + desc) / 2.0
+    y_qr_bottom = y_text_center - qr_sz / 2.0
+    _draw_footer_qr(c, x_qr, y_qr_bottom, qr_sz, qr_data)
 
 
 def _random_times(
@@ -696,6 +815,20 @@ def build_clock_worksheet_pdf(
     n = min(MAX_CLOCKS_PER_PAGE, max(1, int(max_problems)))
     total_pages = max(1, min(MAX_PDF_PAGES, int(pages)))
     app_url = _resolve_footer_app_url(footer_app_url)
+    fs_footer = _font_size_pt(_WORKSHEET_FOOTER_FONT_SIZE_PT)
+    qr_extra_lift = 0.0
+    if app_url:
+        qr_sz_pt = fs_footer * _FOOTER_QR_SIZE_MULT
+        asc_f, desc_f = getAscentDescent(
+            _safe_font_name(_WORKSHEET_FOOTER_FONT_NAME), fs_footer
+        )
+        text_mid_off = (asc_f + desc_f) / 2.0
+        below_baseline_pt = max(0.0, qr_sz_pt / 2.0 - text_mid_off)
+        qr_extra_lift_pt = (
+            max(0.0, qr_sz_pt - fs_footer * 1.25) * _FOOTER_QR_GRID_LIFT_MULT
+            + below_baseline_pt
+        )
+        qr_extra_lift = qr_extra_lift_pt / 72.0 * inch
 
     buf = BytesIO()
     c = canvas.Canvas(buf, pagesize=letter)
@@ -708,7 +841,7 @@ def build_clock_worksheet_pdf(
     col_w = inner_w / COLUMNS
     # Reserve title; lift bottom of grid so the footer does not overlap clocks
     grid_top = MARGIN + inner_h - title_h
-    grid_bottom = MARGIN + _WORKSHEET_FOOTER_GRID_LIFT
+    grid_bottom = MARGIN + _WORKSHEET_FOOTER_GRID_LIFT + qr_extra_lift
     grid_h = grid_top - grid_bottom
     cell_h = grid_h / rows if rows else grid_h
 
@@ -764,22 +897,15 @@ def build_clock_worksheet_pdf(
                 answer_24h_rows=answer_24h_rows,
             )
 
-        c.setFont(
-            _safe_font_name(_WORKSHEET_FOOTER_FONT_NAME),
-            _font_size_pt(_WORKSHEET_FOOTER_FONT_SIZE_PT),
-        )
-        c.drawCentredString(
-            PAGE_W / 2,
-            _FOOTER_LINE_BASELINE_Y,
-            _footer_line(
-                show_minutes_ticks,
-                show_minutes_numbers,
-                step,
-                page_index + 1,
-                total_pages,
-                app_url=app_url,
-                answer_24h_rows=answer_24h_rows,
-            ),
+        _draw_worksheet_footer(
+            c,
+            show_minutes_ticks=show_minutes_ticks,
+            show_minutes_numbers=show_minutes_numbers,
+            step_label=step,
+            page=page_index + 1,
+            total_pages=total_pages,
+            app_url=app_url,
+            answer_24h_rows=answer_24h_rows,
         )
 
     c.save()
