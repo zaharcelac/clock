@@ -77,6 +77,8 @@ uvicorn analog_clock_worksheet.web:app --host 0.0.0.0 --port 8000
 
 In Docker, set the same environment variable (see `Dockerfile` comments). Your proxy should forward requests to the app (often **stripping** the `/clock` prefix so the app still sees paths `/` and `/worksheet`), and ideally send **`X-Forwarded-Prefix: /clock`** (or equivalent) so the PDF footer **WEB:** line matches the public URL (`public_url.py` also reads `X-Forwarded-Proto` / `X-Forwarded-Host`).
 
+Opening the public URL **without** a trailing slash (e.g. `https://host/clock`) is handled without a **307** redirect to `/clock/`.
+
 ## Customizing the PDF
 
 Most layout, fonts, tick sizes, hand arrows, header/footer text, and answer-line labels are controlled by **module-level variables** in:

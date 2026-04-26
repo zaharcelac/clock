@@ -12,6 +12,7 @@ from string import Template
 
 from fastapi import FastAPI, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, StreamingResponse
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 from analog_clock_worksheet import __version__
 from analog_clock_worksheet.public_url import worksheet_public_url
@@ -40,11 +41,35 @@ def _asgi_root_path() -> str:
     return raw
 
 
-app = FastAPI(
+class _RootPrefixTrailingSlash:
+    """
+    Starlette's slash redirect treats ``path == root_path`` (e.g. ``/clock``) as
+    needing a trailing slash and answers with **307**. Rewrite to ``/clock/``
+    internally so the index route matches without a redirect.
+    """
+
+    def __init__(self, inner: ASGIApp, prefix: str) -> None:
+        self.inner = inner
+        self.prefix = (prefix or "").rstrip("/")
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if (
+            self.prefix
+            and scope["type"] == "http"
+            and scope.get("path") == self.prefix
+        ):
+            scope = dict(scope)
+            scope["path"] = self.prefix + "/"
+        await self.inner(scope, receive, send)
+
+
+_ROOT_PATH = _asgi_root_path()
+
+_fastapi = FastAPI(
     title="Analog clock worksheet",
     version=__version__,
     description="Generate US Letter PDFs with random analog clock times.",
-    root_path=_asgi_root_path(),
+    root_path=_ROOT_PATH,
 )
 
 _INDEX_HTML = Path(__file__).resolve().parent / "templates" / "index.html"
@@ -56,7 +81,7 @@ def _index_template() -> Template:
     return Template(_INDEX_HTML.read_text(encoding="utf-8"))
 
 
-@app.get("/", response_class=HTMLResponse)
+@_fastapi.get("/", response_class=HTMLResponse)
 def index(request: Request) -> str:
     form_action = str(request.url_for("worksheet").path)
     return _index_template().substitute(
@@ -70,7 +95,7 @@ def _form_on(v: str) -> bool:
     return str(v).strip() not in ("0", "false", "False", "off", "no", "")
 
 
-@app.post("/worksheet")
+@_fastapi.post("/worksheet")
 def worksheet(
     request: Request,
     max_problems: int = Form(6, ge=1, le=MAX_CLOCKS_PER_PAGE),
@@ -115,3 +140,7 @@ def worksheet(
             "Content-Disposition": f'attachment; filename="{name}"',
         },
     )
+
+
+# ASGI entry for Uvicorn: optional prefix rewrite avoids 307 when opening ``/prefix`` without ``/``.
+app: ASGIApp = _RootPrefixTrailingSlash(_fastapi, _ROOT_PATH)
