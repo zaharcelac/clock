@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import random
 from datetime import datetime
 from functools import lru_cache
@@ -22,10 +23,28 @@ from analog_clock_worksheet.pdf_gen import (
     build_clock_worksheet_pdf,
 )
 
+_ROOT_PATH_ENV = "ROOT_PATH"
+
+
+def _asgi_root_path() -> str:
+    """Public URL path prefix when the app sits behind a reverse proxy (e.g. ``/clock``).
+
+    Read from the ``ROOT_PATH`` environment variable.
+    """
+    raw = (os.environ.get(_ROOT_PATH_ENV) or "").strip()
+    if not raw:
+        return ""
+    raw = raw.rstrip("/")
+    if not raw.startswith("/"):
+        raw = "/" + raw
+    return raw
+
+
 app = FastAPI(
     title="Analog clock worksheet",
     version=__version__,
     description="Generate US Letter PDFs with random analog clock times.",
+    root_path=_asgi_root_path(),
 )
 
 _INDEX_HTML = Path(__file__).resolve().parent / "templates" / "index.html"
@@ -33,15 +52,17 @@ _INDEX_HTML = Path(__file__).resolve().parent / "templates" / "index.html"
 
 @lru_cache(maxsize=1)
 def _index_template() -> Template:
-    # string.Template: $version, $max_pages (avoids str.format vs CSS `{` clashes).
+    # string.Template: $version, $max_pages, $form_action (avoids str.format vs CSS `{` clashes).
     return Template(_INDEX_HTML.read_text(encoding="utf-8"))
 
 
 @app.get("/", response_class=HTMLResponse)
-def index() -> str:
+def index(request: Request) -> str:
+    form_action = str(request.url_for("worksheet").path)
     return _index_template().substitute(
         version=__version__,
         max_pages=MAX_PDF_PAGES,
+        form_action=form_action,
     )
 
 

@@ -64,6 +64,19 @@ Open the app in a browser, fill the form, and download the generated PDF. Genera
 
 Form options match the CLI where applicable: **Sun and moon rows (24-hour)** controls the same behavior as `--24h` / `--no-24h` (default: shown). Set **Hide** to omit those two lines and use a shorter answer block next to each clock.
 
+### Reverse proxy (e.g. `https://host/clock/`)
+
+The HTML form must post back under the **same URL prefix** the browser uses. A bare `action="/worksheet"` sends the browser to `https://host/worksheet`, which bypasses your mount and usually breaks.
+
+**Fix:** set the ASGI root path so generated links include the prefix:
+
+```bash
+export ROOT_PATH=/clock
+uvicorn analog_clock_worksheet.web:app --host 0.0.0.0 --port 8000
+```
+
+In Docker, set the same environment variable (see `Dockerfile` comments). Your proxy should forward requests to the app (often **stripping** the `/clock` prefix so the app still sees paths `/` and `/worksheet`), and ideally send **`X-Forwarded-Prefix: /clock`** (or equivalent) so the PDF footer **WEB:** line matches the public URL (`public_url.py` also reads `X-Forwarded-Proto` / `X-Forwarded-Host`).
+
 ## Customizing the PDF
 
 Most layout, fonts, tick sizes, hand arrows, header/footer text, and answer-line labels are controlled by **module-level variables** in:
